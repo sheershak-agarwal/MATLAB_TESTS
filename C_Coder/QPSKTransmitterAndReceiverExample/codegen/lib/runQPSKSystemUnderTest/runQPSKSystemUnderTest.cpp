@@ -35,9 +35,8 @@
 #include <string.h>
 #include <signal.h>
 #include <stdio.h>
-#include "iio.h"
-#include <iostream>
-#include <csignal>
+
+#include <iio.h>
 
 /* helper macros */
 #define MHZ(x) ((long long)(x*1000000.0 + .5))
@@ -45,7 +44,7 @@
 
 #define IIO_ENSURE(expr) { \
 	if (!(expr)) { \
-		std::cerr << "assertion failed(" << __FILE__ << ":" << __LINE__ << ")\n"; \
+		fprintf(stderr, "assertion failed (%s:%d)\n", __FILE__, __LINE__); \
 		abort(); \
 	} \
 }
@@ -73,7 +72,6 @@ static struct iio_channel *tx0_q = NULL;
 static struct iio_buffer  *rxbuf = NULL;
 static struct iio_buffer  *txbuf = NULL;
 
-static bool stop;
 
 /* cleanup and exit */
 static void shutdown()
@@ -93,15 +91,9 @@ static void shutdown()
 	exit(0);
 }
 
-static void handle_sig(int sig)
-{
-	printf("Waiting for process to finish... Got signal %d\n", sig);
-	stop = true;
-}
-
 /* check return value of attr_write function */
 static void errchk(int v, const char* what) {
-	 if (v < 0) { std::cerr << "Error " << v <<  " writing to channel \"" << what <<"\nvalue may not be supported.\n"; shutdown(); }
+	 if (v < 0) { fprintf(stderr, "Error %d writing to channel \"%s\"\nvalue may not be supported.\n", v, what); shutdown(); }
 }
 
 /* write attribute: long long int */
@@ -127,7 +119,7 @@ static char* get_ch_name(const char* type, int id)
 static struct iio_device* get_ad9361_phy(struct iio_context *ctx)
 {
 	struct iio_device *dev =  iio_context_find_device(ctx, "ad9361-phy");
-  IIO_ENSURE(dev && "No ad9361-phy found");
+	IIO_ENSURE(dev && "No ad9361-phy found");
 	return dev;
 }
 
@@ -142,7 +134,7 @@ static bool get_ad9361_stream_dev(struct iio_context *ctx, enum iodev d, struct 
 }
 
 /* finds AD9361 streaming IIO channels */
-static bool get_ad9361_stream_ch(struct iio_context *ctx, enum iodev d, struct iio_device *dev, int chid, struct iio_channel **chn)
+static bool get_ad9361_stream_ch(__notused struct iio_context *ctx, enum iodev d, struct iio_device *dev, int chid, struct iio_channel **chn)
 {
 	*chn = iio_device_find_channel(dev, get_ch_name("voltage", chid), d == TX);
 	if (!*chn)
@@ -189,11 +181,12 @@ bool cfg_ad9361_streaming_ch(struct iio_context *ctx, struct stream_cfg *cfg, en
 	wr_ch_lli(chn, "frequency", cfg->lo_hz);
 	return true;
 }
+
 // Function Definitions
 void runQPSKSystemUnderTest(double BER[3])
 {
 
-  // Streaming devices
+// Streaming devices
 	struct iio_device *tx;
 	struct iio_device *rx;
 
@@ -205,19 +198,16 @@ void runQPSKSystemUnderTest(double BER[3])
 	struct stream_cfg rxcfg;
 	struct stream_cfg txcfg;
 
-	// Listen to ctrl+c and IIO_ENSURE
-	// signal(SIGINT, handle_sig);
-
 	// RX stream config
 	rxcfg.bw_hz = MHZ(2);   // 2 MHz rf bandwidth
 	rxcfg.fs_hz = MHZ(2.5);   // 2.5 MS/s rx sample rate
-	rxcfg.lo_hz = GHZ(2.5); // 2.5 GHz rf frequency
+	rxcfg.lo_hz = MHZ(900); // 2.5 GHz rf frequency
 	rxcfg.rfport = "A_BALANCED"; // port A (select for rf freq.)
 
 	// TX stream config
-	txcfg.bw_hz = MHZ(1.5); // 1.5 MHz rf bandwidth
+	txcfg.bw_hz = MHZ(2); // 1.5 MHz rf bandwidth
 	txcfg.fs_hz = MHZ(2.5);   // 2.5 MS/s tx sample rate
-	txcfg.lo_hz = GHZ(2.5); // 2.5 GHz rf frequency
+	txcfg.lo_hz = MHZ(900); // 2.5 GHz rf frequency
 	txcfg.rfport = "A"; // port A (select for rf freq.)
 
 	printf("* Acquiring IIO context\n");
@@ -246,22 +236,20 @@ void runQPSKSystemUnderTest(double BER[3])
 	iio_channel_enable(tx0_q);
 
 	printf("* Creating non-cyclic IIO buffers with 1 MiS\n");
-	rxbuf = iio_device_create_buffer(rx, 1024*1024, false);
+	rxbuf = iio_device_create_buffer(rx, 2266, false);
 	if (!rxbuf) {
 		perror("Could not create RX buffer");
 		shutdown();
 	}
-	txbuf = iio_device_create_buffer(tx, 1024*1024, false);
+	txbuf = iio_device_create_buffer(tx, 2266, false);
 	if (!txbuf) {
 		perror("Could not create TX buffer");
 		shutdown();
 	}
 
-	printf("* Starting IO streaming (press CTRL+C to cancel)\n");
-
-
   static QPSKReceiver qpskRx;
   static creal_T transmittedSignal[2266];
+  static creal_T receivedSignal[2266];
   static creal_T varargout_1[2266];
   QPSKDataDecoder *c_obj;
   QPSKTransmitter qpskTx;
@@ -296,10 +284,16 @@ void runQPSKSystemUnderTest(double BER[3])
   //      if useScopes
   //          qpskScopes = QPSKScopes('SampleRate', 10e4);
   //      end
+	
+	printf("TransmittedSignal Created\n");
+	qpskTx.step(transmittedSignal);
+	//for (int i = 0; i < 2266; i++) {
+	//	printf("%f, %f\n",transmittedSignal[i].re, transmittedSignal[i].im);
+	//}
   for (int count{0}; count < 1000; count++) {
 
     ssize_t nbytes_rx, nbytes_tx;
-		char *p_dat, *p_end;
+    char *p_dat, *p_end;
 		ptrdiff_t p_inc;
 
 		// Schedule TX buffer
@@ -309,11 +303,28 @@ void runQPSKSystemUnderTest(double BER[3])
 		// Refill RX buffer
 		nbytes_rx = iio_buffer_refill(rxbuf);
 		if (nbytes_rx < 0) { printf("Error refilling buf %d\n",(int) nbytes_rx); shutdown(); }
-    
-    qpskTx.step(transmittedSignal);
-    //  Transmitter
 
-    printf((char*)transmittedSignal);
+		// WRITE: Get pointers to TX buf and write IQ to TX buf port 0
+		p_inc = iio_buffer_step(txbuf);
+		p_end = (char*)iio_buffer_end(txbuf);
+		int index = 0;
+		for (p_dat = (char *)iio_buffer_first(txbuf, tx0_i); p_dat < p_end; p_dat += p_inc) {
+			((int16_t*)p_dat)[0] = transmittedSignal[index].re; // Real (I)
+			((int16_t*)p_dat)[1] = transmittedSignal[index].im; // Imag (Q)
+			index+=1;
+		}
+		
+		// READ: Get pointers to RX buf and read IQ from RX buf port 0
+		p_inc = iio_buffer_step(rxbuf);
+		p_end = (char*)iio_buffer_end(rxbuf);
+		index =0;
+		for (p_dat = (char *)iio_buffer_first(rxbuf, rx0_i); p_dat < p_end; p_dat += p_inc) {
+			const int16_t i = ((int16_t*)p_dat)[0]; // Real (I)
+			const int16_t q = ((int16_t*)p_dat)[1]; // Imag (Q)
+			receivedSignal[index].re = i;
+			receivedSignal[index].im = q;
+			index+=1;
+		}
 
     if (qpskRx.isInitialized != 1) {
       boolean_T flag;
@@ -486,13 +497,16 @@ void runQPSKSystemUnderTest(double BER[3])
       qpskRx.pMeanFreqOff = 0.0;
       qpskRx.pCnt = 0.0;
     }
-    qpskRx.stepImpl(transmittedSignal, varargout_1, varargout_2_data, &sIdx,
+    qpskRx.stepImpl(receivedSignal, varargout_1, varargout_2_data, &sIdx,
                     varargout_3_data, &i, BER);
     //  Receiver
     //          if useScopes
     //              qpskScopes(transmittedSignal, RCRxSignal, timingRecSignal,
     //              freqRecSignal); % Plots all the scopes
     //          end
+		// Sample counter increment and status output
+		nrx += nbytes_rx / iio_device_get_sample_size(rx);
+		ntx += nbytes_tx / iio_device_get_sample_size(tx);
   }
   qpskRx.matlabCodegenDestructor();
   qpskRx.pDataDecod.matlabCodegenDestructor();
@@ -514,3 +528,4 @@ void runQPSKSystemUnderTest(double BER[3])
 }
 
 // End of code generation (runQPSKSystemUnderTest.cpp)
+
