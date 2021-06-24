@@ -1,0 +1,21 @@
+1.  Copy example from documentation
+2.  Create entry function (qpskApp) from runQPSKSystemUnderTest
+3.  Replace structure with myStruct
+    a.) copy Init function (commqpsktxrx_init)into myStructInit
+    b.) make everything constant
+    c.) make messageBits, and berMask return arguments (out of stucture)
+    d.) remove message (it's now a parameter)
+    e.) create new function to initialize MessageBits, and BerMask
+    f.) make myStruct a constant
+4.  Make MessageBits a regular tunable property in:
+    QPSKTransmitter.m
+    QPSKBitsGenerator.m
+5.  Make BerMask, pMessage, and pMessageLength regular tunable properties in:
+    QPSKReceiver.m
+    QPSKDataDecoder.m
+6.  Replace SignalSource Object with AsyncBuffer Object in QPSKBitsGeneration.m
+    (notice chance in the stepImpl).
+7.  Remove ErrorRate object and calculation in QPSKDataDecoder.m (not necessary).
+8.  Remove Channel Model in the main application function
+
+
