@@ -1,22 +1,16 @@
 
-function qpskApp()
+function qpskApp(message)
 
-message = 'hello world';
 myStruct = myStructInit(message);
 [messageBits, berMask] = initMessage(message,myStruct.MessageLength,myStruct.NumberOfMessage);
 
-if coder.target('MATLAB')
-  useScopes = false;
-else
-  useScopes = false;
-end
 printData = true;
 
 % Copyright 2012-2017 The MathWorks, Inc.
 
 %#codegen
 
-persistent qpskTx qpskRx qpskScopes %qpskChan 
+persistent qpskTx qpskRx
 coder.extrinsic('createQPSKScopes','runQPSKScopes','releaseQPSKScopes')
 if isempty(qpskTx)
     % Initialize the components
@@ -31,21 +25,6 @@ if isempty(qpskTx)
         'ScramblerBase',                        myStruct.ScramblerBase, ...
         'ScramblerPolynomial',                  myStruct.ScramblerPolynomial, ...
         'ScramblerInitialConditions',           myStruct.ScramblerInitialConditions);
-    
-%     % Create and configure the AWGN channel System object
-%     qpskChan = QPSKChannel(...
-%         'DelayType',                            myStruct.DelayType, ...
-%         'DelayStepSize',                        0.0125*myStruct.Interpolation, ...
-%         'DelayMaximum',                         2*myStruct.Interpolation, ...
-%         'DelayMinimum',                         0.1, ...
-%         'RaisedCosineFilterSpan',               myStruct.RaisedCosineFilterSpan, ...
-%         'PhaseOffset',                          myStruct.PhaseOffset, ...
-%         'SignalPower',                          1/myStruct.Interpolation, ...
-%         'InterpolationFactor',                  myStruct.Interpolation, ...
-%         'EbNo',                                 myStruct.EbNo, ...
-%         'BitsPerSymbol',                        log2(myStruct.ModulationOrder), ...
-%         'FrequencyOffset',                      myStruct.FrequencyOffset, ...
-%         'SampleRate',                           myStruct.Fs);
 
     % Create and configure the receiver System object
     qpskRx = QPSKReceiver(...
@@ -77,61 +56,49 @@ if isempty(qpskTx)
         'pMessage',                             message, ...
         'pMessageLength',                       myStruct.MessageLength, ...
         'PrintOption',                          printData);
-
-    if useScopes
-        % Create the System object for plotting all the scopes
-        sampleRate = myStruct.Rsym*myStruct.Interpolation/myStruct.Decimation;
-        qpskScopes = createQPSKScopes(sampleRate);
-    end
 end
 
 qpskRx.PrintOption = printData;
-transmittedSignal = coder.nullcopy(complex(2266,1));
+transmittedSignal = coder.nullcopy(complex(14000,1));
 
 if coder.target('MATLAB')
     % Create and configure the Pluto System object.
-    radio_tx = sdrtx('Pluto');
-    radio_tx.RadioID               = myStruct.Address;
-    radio_tx.CenterFrequency       = myStruct.PlutoCenterFrequency;
-    radio_tx.BasebandSampleRate    = myStruct.PlutoFrontEndSampleRate;
-    radio_tx.SamplesPerFrame       = myStruct.PlutoFrameLength;
-    radio_tx.Gain                  = 0;
-    % 
-    radio_rx = sdrrx('Pluto');
-    radio_rx.RadioID               = myStruct.Address;
-    radio_rx.CenterFrequency       = myStruct.PlutoCenterFrequency;
-    radio_rx.BasebandSampleRate    = myStruct.PlutoFrontEndSampleRate;
-    radio_rx.SamplesPerFrame       = myStruct.PlutoFrameLength;
-    radio_rx.GainSource            = 'Manual';
-    radio_rx.Gain                  = myStruct.PlutoGain;
-    radio_rx.OutputDataType        = 'double';
+%     radio_tx = sdrtx('Pluto');
+%     radio_tx.RadioID               = myStruct.Address;
+%     radio_tx.CenterFrequency       = myStruct.PlutoCenterFrequency;
+%     radio_tx.BasebandSampleRate    = myStruct.PlutoFrontEndSampleRate;
+%     radio_tx.SamplesPerFrame       = myStruct.PlutoFrameLength;
+%     radio_tx.Gain                  = 0;
+%     % 
+%     radio_rx = sdrrx('Pluto');
+%     radio_rx.RadioID               = myStruct.Address;
+%     radio_rx.CenterFrequency       = myStruct.PlutoCenterFrequency;
+%     radio_rx.BasebandSampleRate    = myStruct.PlutoFrontEndSampleRate;
+%     radio_rx.SamplesPerFrame       = myStruct.PlutoFrameLength;
+%     radio_rx.GainSource            = 'Manual';
+%     radio_rx.Gain                  = myStruct.PlutoGain;
+%     radio_rx.OutputDataType        = 'double';
 end
 
 transmittedSignal = qpskTx();                                         % Transmitter
 if coder.target('MATLAB')
     % Data transmission on repeat
-    radio_tx.transmitRepeat(transmittedSignal);
+%     radio_tx.transmitRepeat(transmittedSignal);
 end
+
   
 for count = 1:myStruct.TotalFrame
     
     if coder.target('MATLAB')
-        rcvdSignal = radio_rx();
+        %rcvdSignal = radio_rx();
+        rcvdSignal = transmittedSignal;
     else 
         rcvdSignal = transmittedSignal;
     end
-    [RCRxSignal, timingRecSignal, freqRecSignal, BER] = qpskRx(rcvdSignal); % Receiver
-    if useScopes
-        runQPSKScopes(qpskScopes, rcvdSignal, RCRxSignal, timingRecSignal, freqRecSignal); % Plots all the scopes
-    end
+    [RCRxSignal, timingRecSignal, freqRecSignal, DataRecovered, BER] = qpskRx(rcvdSignal); % Receiver
 end
-disp(BER);
 
 if isempty(coder.target)
     release(qpskTx);
-%    release(qpskChan);
     release(qpskRx);
-end
-if useScopes
-     releaseQPSKScopes(qpskScopes);
 end
